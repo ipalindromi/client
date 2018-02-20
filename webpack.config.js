@@ -39,8 +39,8 @@ module.exports = {
   externals : {
     "electron-store": "require('electron-store')",
     "dblsqd-electron": "require('dblsqd-electron')",
-    "pouchdb-adapter-memory": "require('pouchdb-adapter-memory')",
     "pouchdb-replication-stream": "require('pouchdb-replication-stream')",
+    "pouchdb": "require('pouchdb')",
     "pouchdb-promise": "require('pouchdb-promise')"
   },
   node: {
