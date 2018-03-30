@@ -605,6 +605,13 @@ const exportJson = (data) => {
 const exportTxt = (data) => {
   return new Promise(
     (resolve, reject) => {
+      
+      if (data && typeof data.replace === 'function') {
+        data = (process.platform === "win32") ? data.replace(/\n/g, "\r\n") : data;
+      } else {
+        resolve(new Error('invalid data sent for export'))
+      }
+
       var options =
         { title: 'Export TXT'
         , defaultPath: currentFile ? currentFile.replace('.gko', '') : path.join(app.getPath('documents'),"Untitled.txt")
