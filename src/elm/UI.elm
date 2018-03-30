@@ -16,7 +16,7 @@ import Coders exposing (treeToMarkdownString)
 
 
 
-viewFooter : { m | viewState : ViewState, workingTree : Trees.Model, startingWordcount : Int, shortcutTrayOpen : Bool } -> Html Msg
+viewFooter : { m | viewState : ViewState, workingTree : Trees.Model, startingWordcount : Int, shortcutTrayOpen : Bool, isMac : Bool } -> Html Msg
 viewFooter model =
   let
     wordCounts = getWordCounts model
@@ -29,7 +29,7 @@ viewFooter model =
   in
   div
     [ class "footer" ]
-    ( [ viewShortcutsToggle model.shortcutTrayOpen model.viewState ]
+    ( [ viewShortcutsToggle model.shortcutTrayOpen model.isMac model.viewState ]
     ++
     ( if model.viewState.editing == Nothing then
         if model.startingWordcount /= 0 then
@@ -86,8 +86,8 @@ viewVideo { videoModalOpen } =
     div [][]
 
 
-viewShortcutsToggle : Bool -> ViewState -> Html Msg
-viewShortcutsToggle isOpen vs =
+viewShortcutsToggle : Bool -> Bool -> ViewState -> Html Msg
+viewShortcutsToggle isOpen isMac vs =
   let
     shortcutSpan keys desc =
       let
@@ -99,6 +99,8 @@ viewShortcutsToggle isOpen vs =
         ( keySpans
         ++ [ text ( " " ++ desc ) ]
         )
+
+    ctrlOrCmd = if isMac then "⌘" else "Ctrl"
   in
   if isOpen then
     if vs.editing == Nothing then
@@ -107,10 +109,10 @@ viewShortcutsToggle isOpen vs =
         [ id "shortcuts-tray", class "inset", onClick ShortcutTrayToggle  ]
         [ div [ class "popup" ]
           [ shortcutSpan ["Enter"] "to Edit"
-          , shortcutSpan ["Ctrl","→"] "to Add Child"
-          , shortcutSpan ["Ctrl", "↓"] "to Add Below"
-          , shortcutSpan ["Ctrl", "↑"] "to Add Above"
-          , shortcutSpan ["Ctrl", "Backspace"] "to Delete"
+          , shortcutSpan [ctrlOrCmd,"→"] "to Add Child"
+          , shortcutSpan [ctrlOrCmd, "↓"] "to Add Below"
+          , shortcutSpan [ctrlOrCmd, "↑"] "to Add Above"
+          , shortcutSpan [ctrlOrCmd, "Backspace"] "to Delete"
           ]
         , div [ class "icon-stack" ]
           [ Icon.keyboard ( defaultOptions |> iconColor )
@@ -122,7 +124,7 @@ viewShortcutsToggle isOpen vs =
       div
         [ id "shortcuts-tray", class "inset", onClick ShortcutTrayToggle  ]
         [ div [ class "popup" ]
-          [ shortcutSpan ["Ctrl", "Enter"] "to Save Changes"
+          [ shortcutSpan [ctrlOrCmd, "Enter"] "to Save Changes"
           , shortcutSpan ["Esc"] "to Cancel Changes"
           ]
         , div [ class "icon-stack" ]
@@ -174,7 +176,7 @@ getWordCounts model =
 
     cardCount = countWords currentTree.content
 
-    subtreeCount = cardCount + countWords (treeToMarkdownString currentTree)
+    subtreeCount = cardCount + countWords (treeToMarkdownString False currentTree)
 
     groupCount =
       currentGroup
@@ -190,7 +192,7 @@ getWordCounts model =
         |> String.join "\n\n"
         |> countWords
 
-    treeCount = countWords (treeToMarkdownString tree)
+    treeCount = countWords (treeToMarkdownString False tree)
   in
   WordCount
     cardCount

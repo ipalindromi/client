@@ -293,19 +293,27 @@ treeToJSONrecurse tree =
         ]
 
 
-treeToMarkdown : Tree -> Enc.Value
-treeToMarkdown tree =
+treeToMarkdown : Bool -> Tree -> Enc.Value
+treeToMarkdown withRoot tree =
   tree
-    |> treeToMarkdownString
+    |> treeToMarkdownString withRoot
     |> Enc.string
 
 
-treeToMarkdownString : Tree -> String
-treeToMarkdownString tree =
-  case tree.children of
-    Children c ->
-      List.map treeToMarkdownRecurse c
-        |> String.join "\n\n"
+treeToMarkdownString : Bool -> Tree -> String
+treeToMarkdownString withRoot tree =
+  let
+    contentList =
+      case tree.children of
+        Children c ->
+          List.map treeToMarkdownRecurse c
+  in
+  if withRoot then
+    tree.content :: contentList
+      |> String.join "\n\n"
+  else
+    contentList
+      |> String.join "\n\n"
 
 
 treeToMarkdownRecurse : Tree -> String
@@ -347,10 +355,26 @@ tupleToValue aEnc bEnc (aVal, bVal) =
   Enc.list [ aEnc aVal, bEnc bVal ]
 
 
+tripleToValue : (a -> Enc.Value) -> (b -> Enc.Value) -> (c -> Enc.Value) -> (a, b, c) -> Enc.Value
+tripleToValue aEnc bEnc cEnc (aVal, bVal, cVal) =
+  Enc.list [ aEnc aVal, bEnc bVal, cEnc cVal ]
+
+
 tupleDecoder : Decoder a -> Decoder b -> Decoder (a, b)
 tupleDecoder a b =
   index 0 a
     |> andThen
       (\aVal -> index 1 b
           |> andThen (\bVal -> succeed (aVal, bVal))
+      )
+
+
+tripleDecoder : Decoder a -> Decoder b -> Decoder c -> Decoder (a, b, c)
+tripleDecoder a b c =
+  index 0 a
+    |> andThen
+      (\aVal -> index 1 b
+          |> andThen (\bVal -> index 2 c
+                          |> andThen (\cVal -> succeed (aVal, bVal, cVal))
+                      )
       )

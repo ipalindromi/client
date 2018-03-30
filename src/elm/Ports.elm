@@ -3,6 +3,7 @@ port module Ports exposing (..)
 
 import Types exposing (..)
 import Coders exposing (..)
+import TreeUtils exposing (getColumn)
 import Json.Encode exposing (..)
 import Json.Decode exposing (decodeValue)
 
@@ -16,7 +17,7 @@ sendOut info =
         , data = string str
         }
 
-    ActivateCards (col, cardIds) ->
+    ActivateCards (cardId, col, cardIds) ->
       let
         listListStringToValue lls =
           lls
@@ -26,7 +27,7 @@ sendOut info =
       in
       infoForOutside
         { tag = "ActivateCards"
-        , data = tupleToValue int listListStringToValue ( col, cardIds )
+        , data = tripleToValue string int listListStringToValue ( cardId, col, cardIds )
         }
 
     GetText id ->
@@ -45,6 +46,12 @@ sendOut info =
       infoForOutside
         { tag = "ConfirmCancel"
         , data = list [ string id, string origContent ]
+        }
+
+    ColumnNumberChange cols ->
+      infoForOutside
+        { tag = "ColumnNumberChange"
+        , data = int cols
         }
 
     New str_ ->
@@ -80,10 +87,23 @@ sendOut info =
         , data = treeToJSON tree
         }
 
-    ExportTXT tree ->
+    ExportTXT withRoot tree ->
       infoForOutside
         { tag = "ExportTXT"
-        , data = treeToMarkdown tree
+        , data = treeToMarkdown withRoot tree
+        }
+
+    ExportTXTColumn col tree ->
+      infoForOutside
+        { tag = "ExportTXT"
+        , data =
+            tree
+              |> getColumn col
+              |> Maybe.withDefault [[]]
+              |> List.concat
+              |> List.map .content
+              |> String.join "\n\n"
+              |> string
         }
 
     Push ->
@@ -171,9 +191,10 @@ receiveMsg tagger onError =
             tagger <| Reset
 
           "Load" ->
-            case decodeValue ( tupleDecoder Json.Decode.string Json.Decode.value ) outsideInfo.data of
-              Ok ( filepath, json ) ->
-                tagger <| Load (filepath, json)
+            case decodeValue ( tripleDecoder Json.Decode.string Json.Decode.value (Json.Decode.maybe Json.Decode.string) ) outsideInfo.data of
+              Ok ( filepath, json, lastActive_ ) ->
+                let _ = Debug.log "Ports Load" (filepath, json, lastActive_) in
+                tagger <| Load (filepath, json, lastActive_ |> Maybe.withDefault "1" )
 
               Err e ->
                 onError e
@@ -231,7 +252,15 @@ receiveMsg tagger onError =
             tagger <| DoExportJSON
 
           "DoExportTXT" ->
-            tagger <| DoExportTXT
+            case decodeValue Json.Decode.int outsideInfo.data of
+              Ok col ->
+                tagger <| DoExportTXTColumn col
+
+              Err e ->
+                tagger <| DoExportTXT
+
+          "DoExportTXTCurrent" ->
+              tagger <| DoExportTXTCurrent
 
           "ViewVideos" ->
             tagger <| ViewVideos

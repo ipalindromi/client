@@ -33,16 +33,18 @@ type Msg
 
 type OutgoingMsg
     = Alert String
-    | ActivateCards (Int, List (List String))
+    | ActivateCards (String, Int, List (List String))
     | GetText String
     | TextSurround String String
     | ConfirmCancel String String
+    | ColumnNumberChange Int
     | New (Maybe String)
     | Open (Maybe String)
     | Save String
     | SaveAs
     | ExportJSON Tree
-    | ExportTXT Tree
+    | ExportTXT Bool Tree
+    | ExportTXTColumn Int Tree
     | Push
     | Pull
     | SaveObjects (Json.Value, Json.Value)
@@ -60,7 +62,7 @@ type IncomingMsg
     = UpdateContent (String, String)
     | CancelCardConfirmed
     | Reset
-    | Load (String, Json.Value)
+    | Load (String, Json.Value, String)
     | Merge Json.Value
     | ImportJSON Json.Value
     | CheckoutCommit String
@@ -71,6 +73,8 @@ type IncomingMsg
     | CollaboratorDisconnected String
     | DoExportJSON
     | DoExportTXT
+    | DoExportTXTCurrent
+    | DoExportTXTColumn Int
     | ViewVideos
     | Keyboard String
 

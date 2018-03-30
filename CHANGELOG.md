@@ -1,6 +1,14 @@
 # Change Log
 All notable changes to this project will be documented in this file.
-"Unreleased" changes are implemented but haven't been uploaded yet.
+"Unreleased" changes are implemented but haven't been released yet.
+
+## Unreleased
+  - Added "Export Column" and "Export Current and Children" options.
+  - Fixed line endings on Windows (Export as Text was all on one-line).
+
+## [2.0.2] - 2018-03-28
+  - Fixed Ctrl vs Cmd issue with shortcut tray.
+  - Added more guidance to first-run message.
 
 ## [2.0.1] - 2018-03-27
   - Launch version bump.

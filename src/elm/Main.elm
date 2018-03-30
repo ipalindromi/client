@@ -21,7 +21,7 @@ import Coders exposing (..)
 import Html5.DragDrop as DragDrop
 
 
-main : Program (Bool, Bool) Model Msg
+main : Program (Bool, Bool, Bool) Model Msg
 main =
   programWithFlags
     { init = init
@@ -40,6 +40,7 @@ type alias Model =
   , status : Status
   , uid : String
   , viewState : ViewState
+  , isMac : Bool
   , shortcutTrayOpen : Bool
   , videoModalOpen : Bool
   , startingWordcount : Int
@@ -65,19 +66,21 @@ defaultModel =
       , draggedTree = Nothing
       , collaborators = []
       }
+  , isMac = False
   , shortcutTrayOpen = True
   , videoModalOpen = True
   , startingWordcount = 0
-  , online = True
+  , online = False
   , filepath = Nothing
   , changed = False
   }
 
 
-init : (Bool, Bool) -> (Model, Cmd Msg)
-init (trayIsOpen, videoModalIsOpen) =
+init : (Bool, Bool, Bool) -> (Model, Cmd Msg)
+init (isMac, trayIsOpen, videoModalIsOpen) =
   { defaultModel
-    | shortcutTrayOpen = trayIsOpen
+    | isMac = isMac
+    , shortcutTrayOpen = trayIsOpen
     , videoModalOpen = videoModalIsOpen
   }
     ! [focus "1"]
@@ -299,16 +302,16 @@ update msg ({objects, workingTree, status} as model) =
             |> cancelCard
 
         Reset ->
-          init (model.shortcutTrayOpen, model.videoModalOpen)
+          init (model.isMac, model.shortcutTrayOpen, model.videoModalOpen)
 
-        Load (filepath, json) ->
+        Load (filepath, json, lastActiveCard) ->
           let
             (newStatus, newTree_, newObjects) =
                 Objects.update (Objects.Init json) objects
 
             startingWordcount =
               newTree_
-                |> Maybe.map (\t -> countWords (treeToMarkdownString t))
+                |> Maybe.map (\t -> countWords (treeToMarkdownString False t))
                 |> Maybe.withDefault 0
           in
           case (newStatus, newTree_) of
@@ -320,7 +323,7 @@ update msg ({objects, workingTree, status} as model) =
                 , changed = False
               }
                 ! [ sendOut ( UpdateCommits ( newObjects |> Objects.toValue, getHead newStatus ) ) ]
-                |> activate model.viewState.active
+                |> activate lastActiveCard
 
             (Clean newHead, Just newTree) ->
               { model
@@ -332,7 +335,7 @@ update msg ({objects, workingTree, status} as model) =
                 , changed = False
               }
                 ! [ sendOut ( UpdateCommits ( newObjects |> Objects.toValue, getHead newStatus ) ) ]
-                |> activate model.viewState.active
+                |> activate lastActiveCard
 
             (MergeConflict mTree oldHead newHead [], Just newTree) ->
               { model
@@ -344,7 +347,7 @@ update msg ({objects, workingTree, status} as model) =
                 , changed = False
               }
                 ! [ sendOut ( UpdateCommits ( newObjects |> Objects.toValue, getHead newStatus ) ) ]
-                |> activate model.viewState.active
+                |> activate lastActiveCard
 
             (MergeConflict mTree oldHead newHead conflicts, Just newTree) ->
               { model
@@ -356,7 +359,7 @@ update msg ({objects, workingTree, status} as model) =
                 , changed = False
               }
                 ! [ sendOut ( UpdateCommits ( newObjects |> Objects.toValue, getHead newStatus ) ) ]
-                |> activate model.viewState.active
+                |> activate lastActiveCard
 
             _ ->
               let _ = Debug.log "failed to load json" (newStatus, newTree_, newObjects, json) in
@@ -504,7 +507,22 @@ update msg ({objects, workingTree, status} as model) =
 
         DoExportTXT ->
           model
-            ! [ sendOut ( ExportTXT model.workingTree.tree )]
+            ! [ sendOut ( ExportTXT False model.workingTree.tree )]
+
+        DoExportTXTCurrent ->
+          let
+            currentTree =
+              model.workingTree.tree
+                |> getTree model.viewState.active
+                |> Maybe.withDefault model.workingTree.tree
+          in
+          model
+            ! [ sendOut ( ExportTXT True currentTree )]
+
+        DoExportTXTColumn col ->
+          model
+            ! [ sendOut ( ExportTXTColumn col model.workingTree.tree )]
+
 
         ViewVideos ->
           model ! []
@@ -709,7 +727,8 @@ activate id (model, prevCmd) =
           ! [ prevCmd
             , sendOut
               ( ActivateCards
-                ( getDepth 0 model.workingTree.tree id
+                ( id
+                , getDepth 0 model.workingTree.tree id
                 , centerlineIds flatCols allIds newPast
                 )
               )
@@ -850,7 +869,8 @@ deleteCard id (model, prevCmd) =
     { model
       | workingTree = Trees.update (Trees.Rmv id) model.workingTree
     }
-      ! []
+      ! [prevCmd]
+      |> maybeColumnsChanged model.workingTree.columns
       |> activate nextToActivate
       |> addToHistory
 
@@ -890,6 +910,7 @@ insert pid pos (model, prevCmd) =
     | workingTree = Trees.update (Trees.Ins newId "" pid pos) model.workingTree
   }
     ! [prevCmd]
+    |> maybeColumnsChanged model.workingTree.columns
     |> openCard newId ""
     |> activate newId
 
@@ -928,6 +949,21 @@ insertChild id (model, prevCmd) =
     |> insert id 999999
 
 
+maybeColumnsChanged : List Column -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+maybeColumnsChanged oldColumns ({workingTree} as model, prevCmd) =
+  let
+    oldColNumber = oldColumns |> List.length
+    newColNumber = workingTree.columns |> List.length
+
+    colsChangedCmd =
+      if newColNumber /= oldColNumber then
+        sendOut ( ColumnNumberChange ( newColNumber - 1 ) )
+      else
+        Cmd.none
+  in
+  model ! [prevCmd, colsChangedCmd]
+
+
 -- === Card Moving  ===
 
 move : Tree -> String -> Int -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
@@ -935,7 +971,8 @@ move subtree pid pos (model, prevCmd) =
   { model
     | workingTree = Trees.update (Trees.Mov subtree pid pos) model.workingTree
   }
-    ! []
+    ! [prevCmd]
+    |> maybeColumnsChanged model.workingTree.columns
     |> activate subtree.id
     |> addToHistory
 
@@ -1025,7 +1062,8 @@ addToHistory ({workingTree} as model, prevCmd) =
         , status = newStatus
         , changed = True
       }
-        ! [ sendOut ( SaveObjects ( statusToValue newStatus , Objects.toValue newObjects ) )
+        ! [ prevCmd
+          , sendOut ( SaveObjects ( statusToValue newStatus , Objects.toValue newObjects ) )
           , sendOut ( UpdateCommits ( Objects.toValue newObjects , getHead newStatus ) )
           , sendOut SetChanged
           ]
@@ -1040,7 +1078,8 @@ addToHistory ({workingTree} as model, prevCmd) =
         , status = newStatus
         , changed = True
       }
-        ! [ sendOut ( SaveObjects ( statusToValue newStatus , Objects.toValue newObjects ) )
+        ! [ prevCmd
+          , sendOut ( SaveObjects ( statusToValue newStatus , Objects.toValue newObjects ) )
           , sendOut ( UpdateCommits ( Objects.toValue newObjects , getHead newStatus ) )
           , sendOut SetChanged
           ]
@@ -1056,13 +1095,14 @@ addToHistory ({workingTree} as model, prevCmd) =
           , status = newStatus
           , changed = True
         }
-          ! [ sendOut ( SaveObjects ( statusToValue newStatus , Objects.toValue newObjects ) )
+          ! [ prevCmd
+            , sendOut ( SaveObjects ( statusToValue newStatus , Objects.toValue newObjects ) )
             , sendOut ( UpdateCommits ( Objects.toValue newObjects , getHead newStatus ) )
             , sendOut SetChanged
             ]
       else
         model
-          ! [ sendOut ( SaveLocal ( model.workingTree.tree ) ) ]
+          ! [ prevCmd, sendOut ( SaveLocal ( model.workingTree.tree ) ) ]
 
 
 

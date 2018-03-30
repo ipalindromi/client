@@ -58,10 +58,10 @@ document.title = `${filename} - Gingko`
 
 var dbpath = path.join(app.getPath('userData'), dbname)
 self.db = new PouchDB(dbpath, {adapter: 'memory'})
-var initFlags = [false, false];
 
 var initFlags =
-  [ localStorage.getItem('shortcut-tray-is-open') === "false" ? false : true
+  [ process.platform === "darwin"
+  , localStorage.getItem('shortcut-tray-is-open') === "false" ? false : true
   , localStorage.getItem('video-modal-is-open') === "true" ? true : false
   ]
 
@@ -74,21 +74,28 @@ self.socket = io.connect('http://localhost:3000')
 var crisp_loaded = false;
 
 $crisp.push(['do', 'chat:hide'])
-$crisp.push(['on', 'session:loaded', () => { crisp_loaded = true; console.log('session:loaded')}])
-$crisp.push(['on', 'chat:closed', () => { $crisp.push(['do', 'chat:hide']); console.log('chat:closed') }])
-$crisp.push(['on', 'chat:opened', () => { $crisp.push(['do', 'chat:show']); console.log('chat:opened') }])
-$crisp.push(['on', 'message:received', () => { $crisp.push(['do', 'chat:show']); console.log('message:received') }])
+$crisp.push(['on', 'session:loaded', () => { crisp_loaded = true }])
+$crisp.push(['on', 'chat:closed', () => { $crisp.push(['do', 'chat:hide']) }])
+$crisp.push(['on', 'chat:opened', () => { $crisp.push(['do', 'chat:show']) }])
+$crisp.push(['on', 'message:received', () => { $crisp.push(['do', 'chat:show']) }])
 if (firstRun) {
+  var ctrlOrCmd = process.platform === "darwin" ? "⌘" : "Ctrl";
   localStorage.setItem('first-run', "false")
   $crisp.push(['do'
               , 'message:show'
               , [ 'text' ,
-`Hi! If there's **anything** I might be able to do to help you turn your ideas into words, go to:
-**Help > Contact Adriano**.
+`Hi! Try these steps to get started:
+1. **Enter** to start writing
+2. **${ctrlOrCmd} + Enter** to save changes
+3. **${ctrlOrCmd} + →** to write in a new *child* card
+4. **${ctrlOrCmd} + Enter** to save changes
+5. **${ctrlOrCmd} + ↓**
+
+I know it's not much guidance, but it's a start.
+**Help > Contact Adriano** to send me a message.
 
 ---
-*PS:*
-*I won't interrupt again, except to respond.*
+*PS: I won't interrupt again, except to respond.*
 *Your attention is sacred.*`
                 ]
               ]
@@ -103,8 +110,9 @@ const update = (msg, data) => {
     { 'Alert': () => { alert(data) }
 
     , 'ActivateCards': () => {
-        shared.scrollHorizontal(data[0])
-        shared.scrollColumns(data[1])
+        setLastActive(currentFile, data[0])
+        shared.scrollHorizontal(data[1])
+        shared.scrollColumns(data[2])
       }
 
     , 'GetText': () => {
@@ -197,6 +205,10 @@ const update = (msg, data) => {
         }
       }
 
+    , 'ColumnNumberChange': () => {
+        ipcRenderer.send('column-number-change', data)
+      }
+
     , 'New': () => {
         let clearDb = () => {
           dbname = sha1(Date.now()+machineIdSync())
@@ -264,6 +276,10 @@ const update = (msg, data) => {
         exportTxt(data)
       }
 
+    , 'ExportTXTColumn': () => {
+        exportTxt(data)
+      }
+
     , 'Open': () => {
         if (changed && !saving) {
           saveConfirmation(data).then(openDialog)
@@ -304,7 +320,7 @@ const update = (msg, data) => {
   try {
     cases[msg]()
   } catch(err) {
-    console.log('elmCases one-port failed:', msg, data)
+    console.log('elmCases one-port failed:', err, msg, data)
   }
 }
 
@@ -323,6 +339,8 @@ ipcRenderer.on('menu-open', () => update('Open'))
 ipcRenderer.on('menu-import-json', () => update('Import'))
 ipcRenderer.on('menu-export-json', () => gingko.ports.infoForElm.send({tag: 'DoExportJSON', data: null }))
 ipcRenderer.on('menu-export-txt', () => gingko.ports.infoForElm.send({tag: 'DoExportTXT', data: null }))
+ipcRenderer.on('menu-export-txt-current', () => gingko.ports.infoForElm.send({tag: 'DoExportTXTCurrent', data: null }))
+ipcRenderer.on('menu-export-txt-column', (e, msg) => gingko.ports.infoForElm.send({tag: 'DoExportTXT', data: msg }))
 ipcRenderer.on('menu-save', () => update('Save', currentFile))
 ipcRenderer.on('menu-save-as', () => update('SaveAs'))
 ipcRenderer.on('zoomin', e => { webFrame.setZoomLevel(webFrame.getZoomLevel() + 1) })
@@ -387,7 +405,8 @@ const load = function(filepath, headOverride){
           console.log('refs recovered', refs)
         }
 
-        let toSend = [filepath, [status, { commits: commits, treeObjects: trees, refs: refs}]];
+        let toSend = [filepath, [status, { commits: commits, treeObjects: trees, refs: refs}], getLastActive(filepath)];
+        console.log('toSend', toSend)
         gingko.ports.infoForElm.send({tag: "Load", data: toSend});
       }).catch(function (err) {
         console.log(err)
@@ -622,6 +641,7 @@ const exportTxt = (data) => {
 
       dialog.showSaveDialog(options, function(filepath){
         if(!!filepath){
+          data = process.platform === "win32" ? data.replace(/\n/g, "\r\n") : data;
           fs.writeFile(filepath, data, (err) => {
             if (err) reject(new Error('export-txt writeFile failed'))
             resolve(data)
@@ -738,6 +758,28 @@ const importFile = (filepathToImport) => {
       }
     })
   })
+}
+
+
+function setLastActive (filename, lastActiveCard) {
+  if (filename !== null) {
+    let lastActiveData = JSON.parse(localStorage.getItem('last-active-cards'))
+
+    if (lastActiveData === null) { lastActiveData = {}; }
+
+    lastActiveData[filename] = lastActiveCard;
+    localStorage.setItem('last-active-cards', JSON.stringify(lastActiveData));
+  }
+}
+
+
+function getLastActive (filename) {
+  let lastActiveData = JSON.parse(localStorage.getItem('last-active-cards'))
+  if (lastActiveData !== null && Object.keys(lastActiveData).includes(filename)) {
+    return lastActiveData[filename]
+  } else {
+    return null
+  }
 }
 
 
