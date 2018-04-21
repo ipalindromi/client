@@ -54,30 +54,6 @@ treeListDecoder =
 
 -- ViewState
 
-viewStateToValue : ViewState -> Enc.Value
-viewStateToValue vs =
-  Enc.object
-    [ ( "active", Enc.string vs.active )
-    , ( "activePast", Enc.list (List.map Enc.string vs.activePast) )
-    , ( "activeFuture", Enc.list (List.map Enc.string vs.activeFuture) )
-    , ( "descendants", Enc.list (List.map Enc.string vs.descendants) )
-    , ( "editing", maybeToValue vs.editing Enc.string )
-    ]
-
-
-viewStateDecoder : Decoder ViewState
-viewStateDecoder =
-  Json.map8 ViewState
-    (field "active" string)
-    (field "activePast" (list string))
-    (field "activeFuture" (list string))
-    (field "descendants" (list string))
-    (maybe (field "editing" string))
-    (succeed DragDrop.init)
-    (succeed Nothing)
-    (succeed [])
-
-
 collabStateToValue : CollabState -> Enc.Value
 collabStateToValue collabState =
   Enc.object
@@ -276,6 +252,45 @@ selectionDecoder =
 
 -- EXPORT ENCODINGS
 
+exportSettingsDecoder : Decoder ExportSettings
+exportSettingsDecoder =
+  let
+    formatFromString s =
+      case s of
+        "json" -> JSON
+        "txt" -> TXT
+        _ -> JSON
+
+    formatDecoder =
+      Json.map formatFromString string
+
+    exportStringDecoder =
+      Json.map
+        (\s ->
+          case s of
+            "all" -> All
+            "current" -> CurrentSubtree
+            _ -> All
+        )
+        string
+
+    exportColumnDecoder =
+      Json.map
+        ( \i -> ColumnNumber i )
+        ( field "column" int )
+
+    exportSelectionDecoder =
+      oneOf
+        [ exportStringDecoder
+        , exportColumnDecoder
+        ]
+  in
+  Json.map2 ExportSettings
+    ( field "format" formatDecoder  )
+    ( field "selection" exportSelectionDecoder  )
+  
+
+
 treeToJSON : Tree -> Enc.Value
 treeToJSON tree =
   case tree.children of
@@ -343,8 +358,8 @@ lazyRecurse thunk =
     value
 
 
-maybeToValue : Maybe a -> (a -> Enc.Value) -> Enc.Value
-maybeToValue mb encoder =
+maybeToValue : (a -> Enc.Value) -> Maybe a -> Enc.Value
+maybeToValue encoder mb =
   case mb of
     Nothing -> Enc.null
     Just v -> encoder v
